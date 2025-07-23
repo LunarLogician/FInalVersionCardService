@@ -70,19 +70,16 @@ public ResponseEntity<?> createCard(@RequestBody CreateCardRequestDTO request, H
         token = token.substring(7);
     }
     try {
-        CardService.AccountInfo accountInfo = cardService.fetchAccountInfoFromToken(token);
+        CardService.AccountInfo accountInfo = cardService.fetchAccountInfoFromToken(token, request.getCurrency());
         request.setUserId(accountInfo.userId);
         request.setAccountId(accountInfo.id);
-        // Fetch account currency from accounts API
         String accountCurrency = null;
         if (accountInfo instanceof CardService.AccountInfoWithCurrency) {
             accountCurrency = ((CardService.AccountInfoWithCurrency) accountInfo).currency;
         }
-        // If request currency is not set, set it from account
         if (request.getCurrency() == null && accountCurrency != null) {
             request.setCurrency(accountCurrency);
         }
-        // Pass token to service for further validation if needed
         CreateCardDTO createdCard = cardService.processCardCreationWithCurrency(request, token, accountCurrency);
         return ResponseEntity.ok(createdCard);
     } catch (CardService.ValidationException e) {

@@ -46,23 +46,27 @@ public class CardService {
     private static final String STATUS_EXPIRED = "EXPIRED";
     private static final String STATUS_SUSPENDED = "SUSPENDED";
 
-    // Card Type Constants
     private static final String TYPE_PHYSICAL = "PHYSICAL";
     private static final String TYPE_VIRTUAL = "VIRTUAL";
 
-    // Card Network Constants
     private static final String NETWORK_VISA = "VISA";
     private static final String NETWORK_MASTERCARD = "MASTERCARD";
     private static final String NETWORK_OTHER = "OTHER";
-    public AccountInfo fetchAccountInfoFromToken(String token) {
+    public AccountInfo fetchAccountInfoFromToken(String token, String currency) {
     RestTemplate restTemplate = new RestTemplate();
     System.out.println("Fetching account info for token: " + token);
     HttpHeaders headers = new HttpHeaders();
     headers.set("Authorization", "Bearer " + token);
     headers.setContentType(MediaType.APPLICATION_JSON);
-    HttpEntity<String> entity = new HttpEntity<>("{}", headers); // empty JSON body
+    HttpEntity<String> entity = new HttpEntity<>("{}", headers);
+
+    String url = "http://localhost:8082/api/v1/accounts/by-token";
+    if (currency != null && !currency.isEmpty()) {
+        url += "?currency=" + currency;
+    }
+
     ResponseEntity<JsonNode> response = restTemplate.exchange(
-        "http://localhost:8082/api/v1/accounts/by-token",
+        url,
         HttpMethod.GET,
         entity,
         JsonNode.class
@@ -73,9 +77,9 @@ public class CardService {
     }
     int id = body.get("accountId").asInt();
     int userId = body.get("userId").asInt();
-    String currency = body.has("currency") ? body.get("currency").asText() : null;
-    if (currency != null) {
-        return new AccountInfoWithCurrency(id, userId, currency);
+    String respCurrency = body.has("currency") ? body.get("currency").asText() : null;
+    if (respCurrency != null) {
+        return new AccountInfoWithCurrency(id, userId, respCurrency);
     }
     return new AccountInfo(id, userId);
 }
@@ -95,13 +99,11 @@ public static class AccountInfoWithCurrency extends AccountInfo {
         }
     }
 
-    // New method for card creation with currency validation
     public CreateCardDTO processCardCreationWithCurrency(CreateCardRequestDTO request, String token, String accountCurrency) {
         try {
             validateCreateCardRequest(request);
             validatePlanAssignmentLimits(request);
 
-            // Enforce currency match
             if (request.getCurrency() != null && accountCurrency != null && !request.getCurrency().equalsIgnoreCase(accountCurrency)) {
                 throw new ValidationException("Currency mismatch: Card currency does not match account currency");
             }
@@ -164,6 +166,7 @@ public static class AccountInfoWithCurrency extends AccountInfo {
         card.setUserId(request.getUserId());
         card.setAccountId(request.getAccountId());
         card.setType(toCamelCase(request.getType()));
+        card.setCurrency(request.getCurrency());
         card.setNetwork(toCamelCase(request.getNetwork()));
         card.setSensitiveData(sensitiveData);
         if (request.getPlanId() == null) {
