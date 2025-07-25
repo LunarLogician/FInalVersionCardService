@@ -11,12 +11,14 @@ public class CardPlan {
     private String name;
     private double limitAmount;
     private String description;
+    private double dailyLimit;
 
     public CardPlan() {}
-    public CardPlan(String name, double limitAmount, boolean internationalEnabled, String description) {
+    public CardPlan(String name, double limitAmount, boolean internationalEnabled, String description, double dailyLimit) {
         this.name = name;
         this.limitAmount = limitAmount;
         this.description = description;
+        this.dailyLimit = dailyLimit;
     }
 
     public Integer getId() { return id; }
@@ -27,4 +29,6 @@ public class CardPlan {
     public void setLimitAmount(double limitAmount) { this.limitAmount = limitAmount; }
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }
+    public double getDailyLimit() { return dailyLimit; }
+    public void setDailyLimit(double dailyLimit) { this.dailyLimit = dailyLimit; }
 }

@@ -6,19 +6,30 @@ import org.springframework.http.MediaType;
 import com.example.Card_Service_V2.models.CardPlan;
 import com.example.Card_Service_V2.repositories.CardRepo;
 import com.example.Card_Service_V2.repositories.CardPlanRepository;
-import com.example.Card_Service_V2.services.dtos.*;
+import com.example.Card_Service_V2.repositories.CardTransactionRepository;
+import com.example.Card_Service_V2.models.CardTransaction;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Service;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;import org.springframework.web.client.RestTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.ResponseEntity;
 import org.springframework.http.HttpMethod;
-import com.fasterxml.jackson.databind.JsonNode;
+import org.springframework.http.ResponseEntity;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
+import com.example.Card_Service_V2.services.dtos.CreateCardDTO;
+import com.example.Card_Service_V2.services.dtos.CreateCardRequestDTO;
+import com.example.Card_Service_V2.services.dtos.InternalCardVerificationRequestDTO;
+import com.example.Card_Service_V2.services.dtos.UpdateCardRequestDTO;
+import com.example.Card_Service_V2.services.dtos.CardFilterDTO;
+import com.example.Card_Service_V2.services.dtos.CardListDTO;
+import com.example.Card_Service_V2.services.dtos.CardVerificationResponseDTO;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.security.SecureRandom;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.Year;
 import java.util.ArrayList;
 import java.util.List;
@@ -36,6 +47,9 @@ public class CardService {
     @Autowired
     private CardPlanRepository cardPlanRepository;
 
+    @Autowired
+    private CardTransactionRepository cardTransactionRepository;
+
     private SecureRandom secureRandom = new SecureRandom();
 
     // Card Status Constants
@@ -52,6 +66,8 @@ public class CardService {
     private static final String NETWORK_VISA = "VISA";
     private static final String NETWORK_MASTERCARD = "MASTERCARD";
     private static final String NETWORK_OTHER = "OTHER";
+
+
     public AccountInfo fetchAccountInfoFromToken(String token, String currency) {
     RestTemplate restTemplate = new RestTemplate();
     System.out.println("Fetching account info for token: " + token);
@@ -74,52 +90,75 @@ public class CardService {
     JsonNode body = response.getBody();
     if (body == null || !body.has("accountId") || !body.has("userId")) {
         throw new RuntimeException("Invalid response from accounts API");
-    }
+    } 
+    String status = body.has("status") ? body.get("status").asText() : null;
     int id = body.get("accountId").asInt();
     int userId = body.get("userId").asInt();
     String respCurrency = body.has("currency") ? body.get("currency").asText() : null;
     if (respCurrency != null) {
-        return new AccountInfoWithCurrency(id, userId, respCurrency);
+        return new AccountInfoWithCurrency(id, userId, status, respCurrency);
     }
-    return new AccountInfo(id, userId);
+    return new AccountInfo(id, userId , status);
 }
 public static class AccountInfo {
     public final int id;
     public final int userId;
-    public AccountInfo(int id, int userId) {
+    public final String status;
+    public AccountInfo(int id, int userId, String status) {
         this.id = id;
         this.userId = userId;
+        this.status = status;
+        System.out.println("the status is: " + status);
+
     }
 }
 public static class AccountInfoWithCurrency extends AccountInfo {
         public final String currency;
-        public AccountInfoWithCurrency(int id, int userId, String currency) {
-            super(id, userId);
+        public AccountInfoWithCurrency(int id, int userId, String status, String currency) {
+            super(id, userId, status);
             this.currency = currency;
         }
     }
 
     public CreateCardDTO processCardCreationWithCurrency(CreateCardRequestDTO request, String token, String accountCurrency) {
         try {
+            System.out.println("[CardCreation] Starting processCardCreationWithCurrency");
             validateCreateCardRequest(request);
             validatePlanAssignmentLimits(request);
-
+            if ("Blocked".equalsIgnoreCase(request.getStatus())) {
+                request.setStatus(STATUS_BLOCKED);
+            } else if (request.getStatus() == null || request.getStatus().trim().isEmpty()) {
+                request.setStatus(STATUS_ACTIVE);
+            }
+            if (request.getCurrency() == null || request.getCurrency().trim().isEmpty()) {
+                request.setCurrency("PKR");
+            }
+            if (request.getStatus() == null || request.getStatus().trim().isEmpty()) {
+                request.setStatus("ACTIVE");
+            }
             if (request.getCurrency() != null && accountCurrency != null && !request.getCurrency().equalsIgnoreCase(accountCurrency)) {
                 throw new ValidationException("Currency mismatch: Card currency does not match account currency");
             }
 
             if (isDuplicateCard(request)) {
+                System.out.println("[CardCreation] Duplicate card detected");
                 throw new ValidationException("Duplicate card: A card with this user, account, type, and network already exists.");
             }
 
             CardSensitiveData sensitiveData = createSensitiveData(request);
+            System.out.println("[CardCreation] Created CardSensitiveData: " + sensitiveData);
             CardModel card = createCardModel(request, sensitiveData);
+            System.out.println("[CardCreation] Created CardModel: " + card);
 
-            return createCard(request.getUserId(), request.getAccountId(), card);
+            CreateCardDTO dto = createCard(request.getUserId(), request.getAccountId(), card);
+            System.out.println("[CardCreation] Returning CreateCardDTO: " + dto);
+            return dto;
         } catch (ValidationException e) {
+            System.out.println("[CardCreation] Validation error: " + e.getMessage());
             logger.error("Validation error during card creation: {}", e.getMessage());
             throw e;
         } catch (Exception e) {
+            System.out.println("[CardCreation] Unexpected error: " + e.getMessage());
             logger.error("Unexpected error during card creation", e);
             throw new RuntimeException("Card creation failed", e);
         }
@@ -131,21 +170,29 @@ public static class AccountInfoWithCurrency extends AccountInfo {
      */
     public CreateCardDTO processCardCreation(CreateCardRequestDTO request) {
         try {
+            System.out.println("[CardCreation] Starting processCardCreation");
             validateCreateCardRequest(request);
             validatePlanAssignmentLimits(request);
 
             if (isDuplicateCard(request)) {
+                System.out.println("[CardCreation] Duplicate card detected");
                 throw new ValidationException("Duplicate card: A card with this user, account, type, and network already exists.");
             }
 
             CardSensitiveData sensitiveData = createSensitiveData(request);
+            System.out.println("[CardCreation] Created CardSensitiveData: " + sensitiveData);
             CardModel card = createCardModel(request, sensitiveData);
+            System.out.println("[CardCreation] Created CardModel: " + card);
 
-            return createCard(request.getUserId(), request.getAccountId(), card);
+            CreateCardDTO dto = createCard(request.getUserId(), request.getAccountId(), card);
+            System.out.println("[CardCreation] Returning CreateCardDTO: " + dto);
+            return dto;
         } catch (ValidationException e) {
+            System.out.println("[CardCreation] Validation error: " + e.getMessage());
             logger.error("Validation error during card creation: {}", e.getMessage());
             throw e;
         } catch (Exception e) {
+            System.out.println("[CardCreation] Unexpected error: " + e.getMessage());
             logger.error("Unexpected error during card creation", e);
             throw new RuntimeException("Card creation failed", e);
         }
@@ -158,17 +205,19 @@ public static class AccountInfoWithCurrency extends AccountInfo {
         sensitiveData.setCardCvv(generateCVV());
         sensitiveData.setCardPin(request.getCardPin());
         sensitiveData.setCardExpiry(generateExpiry());
+        sensitiveData.setTitle(request.getTitle()); // Set title
         return sensitiveData;
     }
 
     private CardModel createCardModel(CreateCardRequestDTO request, CardSensitiveData sensitiveData) {
         CardModel card = new CardModel();
-        card.setUserId(request.getUserId());
+        card.setUserid(request.getUserId());
         card.setAccountId(request.getAccountId());
-        card.setType(toCamelCase(request.getType()));
+        card.setType(request.getType());
         card.setCurrency(request.getCurrency());
-        card.setNetwork(toCamelCase(request.getNetwork()));
+        card.setNetwork(request.getNetwork());
         card.setSensitiveData(sensitiveData);
+        card.setTitle(request.getTitle()); 
         if (request.getPlanId() == null) {
             cardPlanRepository.findById(1).ifPresent(card::setPlan);
         }
@@ -178,13 +227,8 @@ public static class AccountInfoWithCurrency extends AccountInfo {
         return card;
     }
 
-    private String toCamelCase(String value) {
-        if (value == null || value.isEmpty()) return value;
-        value = value.trim().toLowerCase();
-        return Character.toUpperCase(value.charAt(0)) + value.substring(1);
-    }
-
     private CreateCardDTO createCard(Integer userId, Integer accountId, CardModel card) {
+        System.out.println("[CardCreation] In createCard. CardModel before status: " + card);
         if (TYPE_PHYSICAL.equalsIgnoreCase(card.getType())) {
             card.setCardstatus(STATUS_PENDING);
         } else if (TYPE_VIRTUAL.equalsIgnoreCase(card.getType())) {
@@ -192,13 +236,16 @@ public static class AccountInfoWithCurrency extends AccountInfo {
         }
 
         card.setCreatedAt(LocalDateTime.now());
-        card.setUserId(userId);
+        card.setUserid(userId);
         card.setAccountId(accountId);
 
+        System.out.println("[CardCreation] Saving CardModel: " + card);
         CardModel saved = repo.save(card);
-        logger.info("Card created successfully with ID: {}", saved.getId());
+        System.out.println("[CardCreation] Card saved with ID: " + saved.getId());
 
-        return buildCreateCardResponse(saved);
+        CreateCardDTO response = buildCreateCardResponse(saved);
+        System.out.println("[CardCreation] buildCreateCardResponse: " + response);
+        return response;
     }
 
     private CreateCardDTO buildCreateCardResponse(CardModel saved) {
@@ -209,6 +256,7 @@ public static class AccountInfoWithCurrency extends AccountInfo {
         response.setCardStatus(saved.getCardstatus());
         response.setType(saved.getType());
         response.setCreatedAt(saved.getCreatedAt());
+        response.setTitle(saved.getTitle()); // Set title in response
         return response;
     }
 
@@ -234,7 +282,6 @@ public static class AccountInfoWithCurrency extends AccountInfo {
         String type = request.getType().trim().toUpperCase();
         if (!TYPE_PHYSICAL.equals(type) && !TYPE_VIRTUAL.equals(type)) {
             throw new ValidationException("Invalid card type. Only 'Physical' and 'Virtual' are allowed.");
-            
         }
         if (request.getNetwork() == null || request.getNetwork().trim().isEmpty()) {
             throw new ValidationException("Network is required");
@@ -242,6 +289,13 @@ public static class AccountInfoWithCurrency extends AccountInfo {
         String network = request.getNetwork().trim().toUpperCase();
         if (!NETWORK_VISA.equals(network) && !NETWORK_MASTERCARD.equals(network) && !NETWORK_OTHER.equals(network)) {
             throw new ValidationException("Invalid network. Only 'Visa', 'MasterCard', or 'Other' are allowed.");
+        }
+        // Title validation: only allow alphabetic and spaces, min 2 chars
+        if (request.getTitle() == null || request.getTitle().trim().isEmpty()) {
+            throw new ValidationException("Title is required");
+        }
+        if (!request.getTitle().matches("[A-Za-z ]{2,}")) {
+            throw new ValidationException("Title must contain only letters and spaces, and be at least 2 characters long");
         }
     }
 
@@ -420,25 +474,57 @@ public static class AccountInfoWithCurrency extends AccountInfo {
         Optional<CardModel> cardOpt = findCardByNumberAndAccountId(request.getCardNumber(), request.getAccountId());
         if (!cardOpt.isPresent()) return false;
         CardModel card = cardOpt.get();
+        System.out.println("[InternalVerify] Verifying cardId: " + card.getId() + ", accountId: " + card.getAccountId() + ", userId: " + card.getUserid());
         // Validation logic
         boolean hasPin = request.getCardPin() != null && !request.getCardPin().trim().isEmpty();
         boolean hasCvv = request.getCardCvv() != null && !request.getCardCvv().trim().isEmpty();
         if (hasPin == hasCvv) {
             // Both present or both missing
             logger.error("Either cardPin or cardCvv must be provided, but not both.");
+            System.out.println("[InternalVerify] Both pin and cvv present or missing. Failing.");
             return false;
         }
         if (hasPin) {
-            if (!request.getCardPin().equals(card.getSensitiveData().getCardPin())) return false;
+            if (!request.getCardPin().equals(card.getSensitiveData().getCardPin())) {
+                System.out.println("[InternalVerify] PIN mismatch. Failing.");
+                return false;
+            }
         } else if (hasCvv) {
-            if (card.getSensitiveData() == null || !request.getCardCvv().equals(card.getSensitiveData().getCardCvv())) return false;
+            if (card.getSensitiveData() == null || !request.getCardCvv().equals(card.getSensitiveData().getCardCvv())) {
+                System.out.println("[InternalVerify] CVV mismatch. Failing.");
+                return false;
+            }
         }
         CardPlan plan = card.getPlan();
-        if (plan == null) return false;
-        if (request.getAmount() != null && request.getAmount() > plan.getLimitAmount()) return false;
-        return isCardActive(card);
+        if (plan == null) {
+            System.out.println("[InternalVerify] No plan assigned to card. Failing.");
+            return false;
+        }
+        if (request.getAmount() != null) {
+            System.out.println("[InternalVerify] Checking transaction limits for cardId: " + card.getId() + ", amount: " + request.getAmount());
+            try {
+                enforceTransactionLimits(card.getId(), request.getAmount());
+                System.out.println("[InternalVerify] Transaction limits passed for cardId: " + card.getId());
+                // Save transaction after passing all checks
+                CardTransaction transaction = new CardTransaction();
+                transaction.setCardId(card.getId());
+                transaction.setAccountId(card.getAccountId());
+                transaction.setAmount(request.getAmount());
+                transaction.setTimestamp(LocalDateTime.now());
+                cardTransactionRepository.save(transaction);
+                System.out.println("[InternalVerify] Transaction saved for cardId: " + card.getId() + ", amount: " + request.getAmount());
+            } catch (ValidationException e) {
+                logger.error("Transaction limit violation: {}", e.getMessage());
+                System.out.println("[InternalVerify] Transaction limit violation: " + e.getMessage());
+                return false;
+            }
+        }
+        boolean active = isCardActive(card);
+        System.out.println("[InternalVerify] Card active status: " + active);
+        return active;
     } catch (Exception e) {
         logger.error("Error in internal card verification: {}", e.getMessage());
+        System.out.println("[InternalVerify] Exception: " + e.getMessage());
         return false;
     }
 }
@@ -721,6 +807,48 @@ public static class AccountInfoWithCurrency extends AccountInfo {
             if (!repo.findByPlan_IdAndUserid(3, userId).isEmpty()) {
                 throw new ValidationException("Plan 3 (Platinum) can only be assigned once per user");
             }
+        }
+    }
+
+    public List<CardPlan> getAllPlans() {
+        return cardPlanRepository.findAll();
+    }
+
+    /**
+     * Checks if the daily transaction limit is exceeded for a card.
+     * @param cardId the card id
+     * @param amount the new transaction amount
+     * @param dailyLimit the daily limit for the card/plan
+     * @return true if the transaction would exceed the daily limit, false otherwise
+     */
+    private boolean isDailyLimitExceeded(Integer cardId, double amount, double dailyLimit) {
+        System.out.println("[DailyLimitCheck] Checking daily limit for cardId: " + cardId + ", amount: " + amount + ", dailyLimit: " + dailyLimit);
+        LocalDate today = LocalDate.now();
+        LocalDateTime startOfDay = today.atStartOfDay();
+        LocalDateTime endOfDay = today.atTime(LocalTime.MAX);
+        Double sumToday = cardTransactionRepository.sumAmountByCardIdAndDay(cardId, startOfDay, endOfDay);
+        System.out.println("[DailyLimitCheck] Sum of today's transactions for cardId " + cardId + " is: " + sumToday);
+        if (sumToday == null) sumToday = 0.0;
+        boolean exceeded = (sumToday + amount) > dailyLimit;
+        System.out.println("[DailyLimitCheck] After adding current amount: " + (sumToday + amount) + ", exceeded: " + exceeded);
+        return exceeded;
+    }
+
+    /**
+     * Enforce both one-time and daily transaction limits for a card.
+     * Throws ValidationException if any limit is exceeded.
+     */
+    public void enforceTransactionLimits(Integer cardId, double amount) {
+        CardModel card = getCardById(cardId);
+        CardPlan plan = card.getPlan();
+        if (plan == null) {
+            throw new ValidationException("No plan assigned to card");
+        }
+        if (amount > plan.getLimitAmount()) {
+            throw new ValidationException("Transaction exceeds one-time limit: " + plan.getLimitAmount());
+        }
+        if (isDailyLimitExceeded(cardId, amount, plan.getDailyLimit())) {
+            throw new ValidationException("Transaction exceeds daily limit: " + plan.getDailyLimit());
         }
     }
 }
