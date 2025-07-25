@@ -16,5 +16,7 @@ public class CreateCardDTO {
     private String type;
     private String cardStatus;
     private LocalDateTime createdAt;
+    private String title;
+    
 
 }

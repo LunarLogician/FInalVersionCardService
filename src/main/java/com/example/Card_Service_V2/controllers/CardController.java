@@ -1,6 +1,7 @@
 package com.example.Card_Service_V2.controllers;
 
 import com.example.Card_Service_V2.models.CardModel;
+import com.example.Card_Service_V2.models.CardPlan;
 import com.example.Card_Service_V2.services.CardService;
 import com.example.Card_Service_V2.services.dtos.CardListDTO;
 import com.example.Card_Service_V2.services.dtos.CardVerificationResponseDTO;
@@ -29,7 +30,7 @@ public class CardController {
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String type,
             @RequestParam(required = false) Integer userId,
-            @RequestParam(required = false) Integer accountId,
+            @RequestParam(required = false) Integer accountId,//dto
             @RequestParam(required = false) String network,
             HttpServletRequest request) {
 
@@ -65,12 +66,15 @@ public class CardController {
 
    @PostMapping
 public ResponseEntity<?> createCard(@RequestBody CreateCardRequestDTO request, HttpServletRequest httpRequest) {
+    System.out.println("[CardController] Received createCard request: " + request);
     String token = httpRequest.getHeader("Authorization");
     if (token != null && token.startsWith("Bearer ")) {
         token = token.substring(7);
     }
     try {
+        System.out.println("[CardController] Fetching account info from token: " + token);
         CardService.AccountInfo accountInfo = cardService.fetchAccountInfoFromToken(token, request.getCurrency());
+        System.out.println("[CardController] AccountInfo: userId=" + accountInfo.userId + ", accountId=" + accountInfo.id);
         request.setUserId(accountInfo.userId);
         request.setAccountId(accountInfo.id);
         String accountCurrency = null;
@@ -80,13 +84,18 @@ public ResponseEntity<?> createCard(@RequestBody CreateCardRequestDTO request, H
         if (request.getCurrency() == null && accountCurrency != null) {
             request.setCurrency(accountCurrency);
         }
+        System.out.println("[CardController] Calling processCardCreationWithCurrency with request: " + request);
         CreateCardDTO createdCard = cardService.processCardCreationWithCurrency(request, token, accountCurrency);
+        System.out.println("[CardController] Card created successfully: " + createdCard);
         return ResponseEntity.ok(createdCard);
     } catch (CardService.ValidationException e) {
+        System.out.println("[CardController] ValidationException: " + e.getMessage());
         return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
     } catch (IllegalArgumentException e) {
+        System.out.println("[CardController] IllegalArgumentException: " + e.getMessage());
         return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
     } catch (Exception e) {
+        System.out.println("[CardController] Exception: " + e.getMessage());
         return ResponseEntity.status(500).body(Map.of("error", "Internal server error during card creation"));
     }
 }
@@ -186,6 +195,44 @@ System.out.println("🔍 CardController.internalVerifyCard: Processing internal 
             return ResponseEntity.ok(result);
         } catch (IllegalArgumentException e) {
             return ResponseEntity.status(403).body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    
+
+    @GetMapping("/number/{cardId}")
+    public ResponseEntity<?> getCardNumber(@PathVariable int cardId, HttpServletRequest request) {
+        Integer userId = AuthUtils.getUserIdAsInt(request);
+        if (userId == null) {
+            return ResponseEntity.status(403).body(Map.of("error", "Unauthorized: user not found in token"));
+        }
+        try {
+            CardModel card = cardService.getCardById(cardId);
+            if (card.getUserid() != userId) {
+                return ResponseEntity.status(403).body(Map.of("error", "Access denied. Card does not belong to user"));
+            }
+            String cardNumber = card.getSensitiveData() != null ? card.getSensitiveData().getCardNumber() : null;
+            return ResponseEntity.ok(Map.of("cardNumber", cardNumber));
+        } catch (Exception e) {
+            return ResponseEntity.status(404).body(Map.of("error", "Card not found"));
+        }
+    }
+
+    @GetMapping("/cvv/{cardId}")
+    public ResponseEntity<?> getCardCvv(@PathVariable int cardId, HttpServletRequest request) {
+        Integer userId = AuthUtils.getUserIdAsInt(request);
+        if (userId == null) {
+            return ResponseEntity.status(403).body(Map.of("error", "Unauthorized: user not found in token"));
+        }
+        try {
+            CardModel card = cardService.getCardById(cardId);
+            if (card.getUserid() != userId) {
+                return ResponseEntity.status(403).body(Map.of("error", "Access denied. Card does not belong to user"));
+            }
+            String cardCvv = card.getSensitiveData() != null ? card.getSensitiveData().getCardCvv() : null;
+            return ResponseEntity.ok(Map.of("cardCvv", cardCvv));
+        } catch (Exception e) {
+            return ResponseEntity.status(404).body(Map.of("error", "Card not found"));
         }
     }
 }

@@ -26,6 +26,7 @@ public class CardModel {
     private LocalDateTime createdAt;
     String cardstatus;
     String currency;
+    String title;
 
     @OneToOne(cascade = CascadeType.ALL)
     @JoinColumn(name = "sensitive_data_id", referencedColumnName = "id")
@@ -35,24 +36,5 @@ public class CardModel {
     @JoinColumn(name = "plan_id")
     private CardPlan plan;
 
-    public void setUserId(int userId) {
-        this.userid = userId;
-    }
-
-    public CardPlan getPlan() {
-        return plan;
-    }
-
-    public void setPlan(CardPlan plan) {
-        this.plan = plan;
-    }
-
-    public String getCurrency() {
-        return currency;
-    }
-
-    public void setCurrency(String currency) {
-        this.currency = currency;
-    }
 
 }

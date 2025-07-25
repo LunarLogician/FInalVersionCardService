@@ -10,11 +10,13 @@ public class CreateCardRequestDTO {
     private String cardPin;
     private Integer planId;
     private String currency;
+    private String title;
+    private String status; // New field for card status
 
     public CreateCardRequestDTO() {
     }
 
-    public CreateCardRequestDTO(Integer userId, Integer accountId, String type, String network, String cardpin, Integer planId, String currency) {
+    public CreateCardRequestDTO(Integer userId, Integer accountId, String type, String network, String cardpin, Integer planId, String currency, String title, String status) {
         this.userId = userId;
         this.accountId = accountId;
         this.type = type;
@@ -22,6 +24,8 @@ public class CreateCardRequestDTO {
         this.cardPin = cardPin;
         this.planId = planId;
         this.currency = currency;
+        this.title = title;
+        this.status = status;
     }
 
     public Integer getUserId() {
@@ -80,6 +84,17 @@ public class CreateCardRequestDTO {
         this.currency = currency;
     }
 
+    public String getTitle() {
+        return title;
+    }
+
+    public void setTitle(String title) {
+        this.title = title;
+    }
+    public String getStatus() {
+        return status;
+    }
+
     @Override
     public String toString() {
         return "CreateCardRequestDTO{" +
@@ -90,6 +105,11 @@ public class CreateCardRequestDTO {
                 ", cardPin='***'" +
                 ", planId=" + planId +
                 ", currency='" + currency + '\'' +
+                ", title='" + title + '\'' +
                 '}';
+    }
+
+    public void setStatus(String status) {
+        this.status = status;
     }
 }

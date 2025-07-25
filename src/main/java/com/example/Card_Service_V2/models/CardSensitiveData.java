@@ -26,6 +26,9 @@ public class CardSensitiveData {
     @Column(nullable = false)
     private String cardExpiry;
 
+    @Column(nullable = true)
+    private String title;
+
     public int getId() { return id; }
     public void setId(int id) { this.id = id; }
     public String getCardNumber() { return cardNumber; }
@@ -36,4 +39,6 @@ public class CardSensitiveData {
     public void setCardPin(String cardPin) { this.cardPin = cardPin; }
     public String getCardExpiry() { return cardExpiry; }
     public void setCardExpiry(String cardExpiry) { this.cardExpiry = cardExpiry; }
+    public String getTitle() { return title; }
+    public void setTitle(String title) { this.title = title; }
 }
